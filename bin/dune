@@ -1,0 +1,4 @@
+(executable
+ (public_name parser_combinators)
+ (name main)
+ (libraries parser_combinators))
