@@ -43,9 +43,10 @@ module ParserMonad : sig include Monad
   val append: 'a list t -> 'a list t -> 'a list t
   val nat: int t
   val int: int t
-  val sepby1: 'a t -> 'a t -> 'a list t
-  val sepby: 'a t -> 'a t -> 'a list t
-  val delim: 'a t -> 'a t -> 'a t -> 'a t
+  val sepby1: 'a t -> 'b t -> 'a list t
+  val sepby: 'a t -> 'b t -> 'a list t
+  val delim: 'a t -> 'b t -> 'c t -> 'b t
+  val choice: 'a t list -> 'a t
   val consume: 'a t -> unit t
   val whitespace: char t
   val ignore: unit t

@@ -12,7 +12,7 @@ module Ast = struct
   | Let of identifier * expr * expr
   | Binop of expr * binop * expr
   | Unop of unop * expr
-  | FunDecl of expr list * expr
+  | FunDecl of identifier list * expr
   | Const of const
   | ListExpr of expr list
   | App of expr * expr
@@ -38,9 +38,74 @@ module LangParser = struct
     let string = return (CString(to_string _string)) in
     number ++ float ++ string
 
-  let binop = str_set ["="; "-"; "*"; "/"; "+."; "-."; "*."; "/."; "<"; "<="; ">"; ">="; "=="; "~="; "&"; "|"; "^"; "&&"; "||"; "::"; ".."; ","]
+  let binop = str_set ["+"; "-"; "*"; "/"; "+."; "-."; "*."; "/."; "<"; "<="; ">"; ">="; "=="; "~="; "&"; "|"; "^"; "&&"; "||"; "::"; ".."; ","]
   let unop = str_set ["-"; "!"; "hd"; "tl"; "fst"; "snd"]
   let arg_list = sepby1 (str ",") identifier
+
+  let rec expr () =
+    let let_expr =
+      let* let_id = str "let" >> identifier << char '=' in
+      let* let_val = expr () << str "in" in
+      let* let_expr = expr () in
+      let* e' = expr' () in
+      return (e' (Let(to_string let_id, let_val, let_expr)))
+    and unop_expr =
+      let* op = unop in
+      let* _expr = expr () in
+      let* e' = expr' () in
+      return (e' (Unop(to_string op, _expr)))
+    and fundecl_expr =
+      let* fun_args = str "fun" >> arg_list << str "->" in
+      let* fun_body = expr () in
+      let* e' = expr' () in
+      return (e' (FunDecl(List.map to_string fun_args, fun_body)))
+    and const_expr =
+      let* value = const in
+      let* e' = expr' () in
+      return (e' (Const(value)))
+    and list_expr =
+      let* _ = char '[' in
+      let* elems = (sepby (expr ()) (char ';')) << char ']' in
+      let* e' = expr' () in
+      return (e' (ListExpr(elems)))
+    and paren_expr =
+      let* _ = char '(' in
+      let* e = (expr ()) << (char ')') in
+      let* e' = expr' () in
+      return (e' e)
+    and if_expr =
+      let* _ = str "if" in
+      let* cond = expr () << str "then" in
+      let* then_expr = expr () << str "else" in
+      let* else_expr = expr () in
+      let* e' = expr' () in
+      return (e' (If(cond, then_expr, else_expr)))
+    and id_expr =
+      let* id = identifier in
+      let* e' = expr' () in
+      return (e' (Id(to_string id)))
+    in choice [
+      let_expr;
+      unop_expr;
+      fundecl_expr;
+      const_expr;
+      list_expr;
+      paren_expr;
+      if_expr;
+      id_expr;
+    ]
+  and expr' () =
+    let binop_expr =
+      let* op = binop in
+      let* rhs = expr () in
+      return (fun x -> Binop(x, to_string op, rhs))
+    and app_expr =
+      let* arg = expr () in
+      return (fun x -> App(x, arg))
+    in binop_expr ++ app_expr ++ return (fun x -> x)
+
+  let prog = many (expr ())
+  let parse str = run prog (of_string str)
 end
 
 (* let nat =
