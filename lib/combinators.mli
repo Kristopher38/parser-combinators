@@ -35,6 +35,7 @@ module ParserMonad : sig include Monad
   val right: 'b t -> 'a t -> 'a t
   val word: char list -> char list t
   val str: string -> char list t
+  val str_set: string list -> char list t
   val many1: 'a t -> 'a list t
   val many: 'a t -> 'a list t
   val option: 'a list t -> 'a list t
