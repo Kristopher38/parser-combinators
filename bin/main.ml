@@ -3,18 +3,33 @@ module Ast = struct
   | CInt of int
   | CFloat of float
   | CString of string
+
+  type identifier = string
+  type binop = string
+  type unop = string
+
+  type expr =
+  | Let of identifier * expr * expr
+  | Binop of expr * binop * expr
+  | Unop of unop * expr
+  | FunDecl of expr list * expr
+  | Const of const
+  | ListExpr of expr list
+  | App of expr * expr
+  | If of expr * expr * expr
+  | Id of identifier
 end
 
 module LangParser = struct
   open Parser_combinators.Combinators.ParserMonad
   open Ast
-  let _identifier =
+  let identifier =
     let alpha_underscore = alpha ++ (char '_') in
     let* first = alpha_underscore in
     let* rest = many1 (alpha_underscore ++ digit) in
     return (first :: rest)
 
-  let _const =
+  let const =
     let* _number = option (str "-") @@ (many digit) in
     let number = return (CInt(to_string _number |> int_of_string)) in
     let* _float = (option (str "-")) @@ (many1 digit << char '.' >> many digit) in
@@ -23,7 +38,9 @@ module LangParser = struct
     let string = return (CString(to_string _string)) in
     number ++ float ++ string
 
-  let binop = char_set "=-*/" @> str "+." ++ str "-." ++ str "*." ++ str "/."
+  let binop = str_set ["="; "-"; "*"; "/"; "+."; "-."; "*."; "/."; "<"; "<="; ">"; ">="; "=="; "~="; "&"; "|"; "^"; "&&"; "||"; "::"; ".."; ","]
+  let unop = str_set ["-"; "!"; "hd"; "tl"; "fst"; "snd"]
+  let arg_list = sepby1 (str ",") identifier
 end
 
 (* let nat =
