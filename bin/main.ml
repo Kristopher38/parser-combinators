@@ -103,30 +103,25 @@ module LangParser = struct
   
   let prefix = choice [
     (map (char '-') ((fun a -> Unop(UMinus, a)), 4));
-    (map (char '!') ((fun a -> Unop(Neg, a)), 4));
+    (map (token (char '!')) ((fun a -> Unop(Neg, a)), 4));
   ]
   let infix = choice [
-    (map (char '*') ((fun a b -> Binop(a, Mul, b)), 2, 3));
-    (map (char '/') ((fun a b -> Binop(a, Div, b)), 2, 3));
-    (map (char '+') ((fun a b -> Binop(a, Plus, b)), 3, 2));
-    (map (char '-') ((fun a b -> Binop(a, Minus, b)), 3, 2));
+    (map (token (char '*')) ((fun a b -> Binop(a, Mul, b)), 4, 5));
+    (map (token (char '/')) ((fun a b -> Binop(a, Div, b)), 4, 5));
+    (map (token (char '+')) ((fun a b -> Binop(a, Plus, b)), 3, 2));
+    (map (token (char '-')) ((fun a b -> Binop(a, Minus, b)), 3, 2));
   ]
 
   let rec expr () =
     let let_expr =
       let* let_id = token (str "let") >> token identifier << token (char '=') in
-      let* let_val = !:expr << token (str "in") in
-      let* let_expr = !:expr in
+      let* let_val = !:op_expr << token (str "in") in
+      let* let_expr = !:op_expr in
       let* e' = !:expr' in
       return (e' (Let(to_string let_id, let_val, let_expr)))
-    and unop_expr =
-      let* op = unop in
-      let* _expr = !:expr in
-      let* e' = !:expr' in
-      return (e' (Unop(List.assoc (to_string op) unop_m, _expr)))
     and fundecl_expr =
       let* fun_args = token (str "fun") >> arg_list << token (str "->") in
-      let* fun_body = !:expr in
+      let* fun_body = !:op_expr in
       let* e' = !:expr' in
       return (e' (FunDecl(List.map to_string fun_args, fun_body)))
     and const_expr =
@@ -134,45 +129,39 @@ module LangParser = struct
       let* e' = !:expr' in
       return (e' (Const(value)))
     and list_expr =
-      let* elems = token (char '[') >> (sepby (!:expr) (token (char ';'))) << token (char ']') in
+      let* elems = token (char '[') >> (sepby (!:op_expr) (token (char ';'))) << token (char ']') in
       let* e' = !:expr' in
       return (e' (ListExpr(elems)))
     and paren_expr =
-      let* e = token (char '(') >> !:expr << token (char ')') in
+      let* e = token (char '(') >> !:op_expr << token (char ')') in
       let* e' = !:expr' in
       return (e' e)
     and if_expr =
-      let* cond = token  (str "if") >> !:expr << token (str "then") in
-      let* then_expr = !:expr << token (str "else") in
-      let* else_expr = !:expr in
+      let* cond = token  (str "if") >> !:op_expr << token (str "then") in
+      let* then_expr = !:op_expr << token (str "else") in
+      let* else_expr = !:op_expr in
       let* e' = !:expr' in
       return (e' (If(cond, then_expr, else_expr)))
     and id_expr =
       let* id = token identifier in
       let* e' = !:expr' in
       return (e' (Id(to_string id)))
-    and binop_expr = operator_parser !:expr prefix infix
     in choice [
       id_expr;
       let_expr;
       fundecl_expr;
-      unop_expr;
       const_expr;
       list_expr;
       paren_expr;
       if_expr;
-      binop_expr;
     ]
   and expr' () =
-    let (*binop_expr =
-      let* op = token binop in
-      let* rhs = !:expr in
-      return (fun x -> Binop(x, List.assoc (to_string op) binop_m, rhs))
-    and *) app_expr =
-      let* arg = !:expr in
-      return (fun x -> App(x, arg))
-    in (*binop_expr ++*) app_expr ++ return (fun x -> x)
-
+    let app_expr =
+      let* arg = many1 !:op_expr in
+      return (fun f -> List.fold_left (fun acc x -> App(acc, x)) f arg)
+    in app_expr ++ return (fun x -> x)  
+  and op_expr () =
+    operator_parser !:expr prefix infix
   (* type ('a, 'b) operator =
   | InfixL of (('a -> 'b -> 'b) * int * int) Parser_combinators.Combinators.ParserMonad.t
   | InfixR of (('a -> 'b -> 'b) * int * int) Parser_combinators.Combinators.ParserMonad.t
@@ -201,7 +190,7 @@ module LangParser = struct
   ] *)
 
 
-  let prog = many (expr ()) << eof
+  let prog = many (op_expr ()) << eof
   let parse str = run prog (of_string str)
 end
 
@@ -212,14 +201,14 @@ let rev_assoc xs =
   let ys, zs = List.split xs in List.combine zs ys
 let rec ast_to_string e = match e with
 | Ast.Let(id, e1, e2) -> "let " ^ id ^ " = " ^ ast_to_string  e1 ^ " in " ^ ast_to_string  e2
-| Ast.Binop(e1, op, e2) -> ast_to_string  e1 ^ " " ^ List.assoc op (rev_assoc LangParser.binop_m) ^ " " ^ ast_to_string  e2
-| Ast.Unop(op, e) -> List.assoc op (rev_assoc LangParser.unop_m) ^ ast_to_string e
+| Ast.Binop(e1, op, e2) -> "(" ^ ast_to_string e1 ^ " " ^ List.assoc op (rev_assoc LangParser.binop_m) ^ " " ^ ast_to_string e2 ^ ")"
+| Ast.Unop(op, e) -> "(" ^ List.assoc op (rev_assoc LangParser.unop_m) ^ ast_to_string e ^ ")"
 | Ast.FunDecl(xs, e) -> "fun " ^ String.concat "," xs ^ " -> " ^ ast_to_string e
 | Ast.Const(CInt n) -> string_of_int n
 | Ast.Const(CFloat f) -> string_of_float f
 | Ast.Const(CString s) -> "\"" ^ s ^ "\""
-| Ast.ListExpr(xs) -> String.concat "\n" (List.map ast_to_string xs)
-| Ast.App(e1, e2) -> ast_to_string e1 ^ " " ^ ast_to_string e2
+| Ast.ListExpr(xs) -> "[" ^ String.concat "\n" (List.map ast_to_string xs) ^ "]"
+| Ast.App(e1, e2) -> "{(" ^ ast_to_string e1 ^ ") (" ^ ast_to_string e2 ^ ")}"
 | Ast.If(cond, _then, _else) -> "if " ^ ast_to_string cond ^ " then " ^ ast_to_string _then ^ " else " ^ ast_to_string _else
 | Ast.Id(id) -> id
 

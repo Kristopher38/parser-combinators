@@ -14,25 +14,26 @@
 #            | if <expr> then <expr> else <expr>
 #            | <id>
 
-<expr> ::= let <id> = <expr> in <expr> <expr'>
-           | <unop> <expr> <expr'>
-           | fun <arg-list> -> <expr> <expr'>
+<expr> ::= let <id> = <op-expr> in <op-expr> <expr'>
+           | fun <arg-list> -> <op-expr> <expr'>
            | <const> <expr'>
            | [ <list-elems> ] <expr'>
            | ( <expr> ) <expr'>
-           | if <expr> then <expr> else <expr> <expr'>
+           | if <op-expr> then <op-expr> else <op-expr> <expr'>
            | <id> <expr'>
 
-<expr'> ::= <binop> <expr>
-            | <expr>
+<expr'> ::= <op-expr>
             | eps
+
+<op-expr> ::= <expr> <binop> <expr>
+              | <unop> <expr>
 
 <binop>   ::= + | - | * | / | +. | -. | *. | /. | < | <= | > | >= | == | ~= | & | '|' | ^ | && | '||' | :: | .. | ,
 <unop>    ::= - | ! | hd | tl | fst | snd
 <arg-list> ::= <identifier> , <arg-list>
                | <identifier>
-<const>   ::= -?[0-9]+ | -?[0-9]+.[0-9]* | " [\x20-\x7F] " | [] | ()
+<const>   ::= -?[0-9]+ | -?[0-9]+.[0-9]* | " [\x20-\x7F] "
 <id>      ::= [a-zA-Z_][0-9a-zA-Z_]+
 
 <list-elems> ::= <expr> ; <list-elems>
-                 | eps
+                 | <expr>
