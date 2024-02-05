@@ -23,99 +23,124 @@ end
 module LangParser = struct
   open Parser_combinators.Combinators.ParserMonad
   open Ast
+
+  let reserved = ["let"; "in"; "fun"; "if"; "then"; "else"]
   let identifier =
     let alpha_underscore = alpha ++ (char '_') in
     let* first = alpha_underscore in
-    let* rest = many1 (alpha_underscore ++ digit) in
-    return (first :: rest)
+    let* rest = many (alpha_underscore ++ digit) in
+    let str = (first :: rest) |> to_string in
+    if List.mem str reserved then
+      zero
+    else
+      return (first :: rest)
 
   let const =
-    let* _number = option (str "-") @@ (many digit) in
-    let number = return (CInt(to_string _number |> int_of_string)) in
-    let* _float = (option (str "-")) @@ (many1 digit << char '.' >> many digit) in
-    let float = return (CFloat(to_string _float |> float_of_string)) in
-    let* _string = delim (str "\"") (many (sat (in_range '\x20' '\x7f'))) (str "\"") in
-    let string = return (CString(to_string _string)) in
-    number ++ float ++ string
+    let number_parser =
+      let* _number = option (str "-") @@ (many1 digit) in
+      return (CInt(to_string _number |> int_of_string))
+    and float_parser =
+      let* _float = (option (str "-")) @@ (many1 digit << char '.' >> many digit) in
+      return (CFloat(to_string _float |> float_of_string))
+    and string_parser =
+      let printable_char = sat (in_range '\x23' '\x7f') ++ sat (in_range '\x20' '\x21') in
+      let* _string = delim (char '"') (many printable_char) (char '"') in
+      return (CString(to_string _string))
+    in choice [
+      float_parser;
+      number_parser;
+      string_parser;
+    ]
 
   let binop = str_set ["+"; "-"; "*"; "/"; "+."; "-."; "*."; "/."; "<"; "<="; ">"; ">="; "=="; "~="; "&"; "|"; "^"; "&&"; "||"; "::"; ".."; ","]
   let unop = str_set ["-"; "!"; "hd"; "tl"; "fst"; "snd"]
-  let arg_list = sepby1 (str ",") identifier
+  let arg_list = sepby1 (token identifier) (token (char ','))
+
+  let defer p = 
+    (return ()) >>= (fun _ -> p ())
+  let (!:) = defer
 
   let rec expr () =
     let let_expr =
-      let* let_id = str "let" >> identifier << char '=' in
-      let* let_val = expr () << str "in" in
-      let* let_expr = expr () in
-      let* e' = expr' () in
+      let* let_id = token (str "let") >> token identifier << token (char '=') in
+      let* let_val = !:expr << token (str "in") in
+      let* let_expr = !:expr in
+      let* e' = !:expr' in
       return (e' (Let(to_string let_id, let_val, let_expr)))
     and unop_expr =
       let* op = unop in
-      let* _expr = expr () in
-      let* e' = expr' () in
+      let* _expr = !:expr in
+      let* e' = !:expr' in
       return (e' (Unop(to_string op, _expr)))
     and fundecl_expr =
-      let* fun_args = str "fun" >> arg_list << str "->" in
-      let* fun_body = expr () in
-      let* e' = expr' () in
+      let* fun_args = token (str "fun") >> arg_list << token (str "->") in
+      let* fun_body = !:expr in
+      let* e' = !:expr' in
       return (e' (FunDecl(List.map to_string fun_args, fun_body)))
     and const_expr =
-      let* value = const in
-      let* e' = expr' () in
+      let* value = token const in
+      let* e' = !:expr' in
       return (e' (Const(value)))
     and list_expr =
-      let* _ = char '[' in
-      let* elems = (sepby (expr ()) (char ';')) << char ']' in
-      let* e' = expr' () in
+      let* elems = token (char '[') >> (sepby (!:expr) (token (char ';'))) << token (char ']') in
+      let* e' = !:expr' in
       return (e' (ListExpr(elems)))
     and paren_expr =
-      let* _ = char '(' in
-      let* e = (expr ()) << (char ')') in
-      let* e' = expr' () in
+      let* e = token (char '(') >> !:expr << token (char ')') in
+      let* e' = !:expr' in
       return (e' e)
     and if_expr =
-      let* _ = str "if" in
-      let* cond = expr () << str "then" in
-      let* then_expr = expr () << str "else" in
-      let* else_expr = expr () in
-      let* e' = expr' () in
+      let* cond = token  (str "if") >> !:expr << token (str "then") in
+      let* then_expr = !:expr << token (str "else") in
+      let* else_expr = !:expr in
+      let* e' = !:expr' in
       return (e' (If(cond, then_expr, else_expr)))
     and id_expr =
-      let* id = identifier in
-      let* e' = expr' () in
+      let* id = token identifier in
+      let* e' = !:expr' in
       return (e' (Id(to_string id)))
     in choice [
+      id_expr;
       let_expr;
-      unop_expr;
       fundecl_expr;
+      unop_expr;
       const_expr;
       list_expr;
       paren_expr;
       if_expr;
-      id_expr;
     ]
   and expr' () =
     let binop_expr =
-      let* op = binop in
-      let* rhs = expr () in
+      let* op = token binop in
+      let* rhs = !:expr in
       return (fun x -> Binop(x, to_string op, rhs))
     and app_expr =
-      let* arg = expr () in
+      let* arg = !:expr in
       return (fun x -> App(x, arg))
     in binop_expr ++ app_expr ++ return (fun x -> x)
 
-  let prog = many (expr ())
+  let prog = many (expr ()) << eof
   let parse str = run prog (of_string str)
 end
 
-(* let nat =
-  let num c = (int_of_char c) - (int_of_char '0') in
-  let eval str = List.fold_left (fun acc x -> 10 * acc + num x) 0 str in
-  let* digits = many1 digit in
-  return (eval digits) *)
 
-(* let dig = PM.run PM.int_list (PM.of_string "[45,-36,75,-222]") 
+let read_file file = In_channel.with_open_bin file In_channel.input_all
 
-let _ = match dig with
-| Some list -> List.iter (Printf.printf "%d,") list
-| None -> Printf.printf "fail" *)
+let rec ast_to_string e = match e with
+| Ast.Let(id, e1, e2) -> "let " ^ id ^ " = " ^ ast_to_string  e1 ^ " in " ^ ast_to_string  e2
+| Ast.Binop(e1, op, e2) -> ast_to_string  e1 ^ " " ^ op ^ " " ^ ast_to_string  e2
+| Ast.Unop(op, e) -> op ^ ast_to_string e
+| Ast.FunDecl(xs, e) -> "fun " ^ String.concat "," xs ^ " -> " ^ ast_to_string e
+| Ast.Const(CInt n) -> string_of_int n
+| Ast.Const(CFloat f) -> string_of_float f
+| Ast.Const(CString s) -> "\"" ^ s ^ "\""
+| Ast.ListExpr(xs) -> String.concat "\n" (List.map ast_to_string xs)
+| Ast.App(e1, e2) -> ast_to_string e1 ^ " " ^ ast_to_string e2
+| Ast.If(cond, _then, _else) -> "if " ^ ast_to_string cond ^ " then " ^ ast_to_string _then ^ " else " ^ ast_to_string _else
+| Ast.Id(id) -> id
+
+let program = match LangParser.parse (read_file Sys.argv.(1)) with
+| Some xs -> String.concat "\n" (List.map ast_to_string xs)
+| None -> "fail"
+
+let _ = print_endline program
