@@ -52,6 +52,7 @@ module ParserMonad : sig include Monad
   val ignore: unit t
   val pre: 'a t -> 'a t
   val token: 'a t -> 'a t
+  val eof: unit t
 end = struct
   type 'a t = char list -> ('a * char list) option
   
@@ -105,7 +106,7 @@ end = struct
   let (>>) = right
   let (<<) = left
 
-  let rec word = function
+  let rec word xs = match xs with
   | [] -> return []
   | x :: xs ->
     let* x = char x in
@@ -169,9 +170,12 @@ end = struct
     List.fold_left plus zero xsp
 
   let consume p = p >> return ()
-  let whitespace = char ' ' ++ char '\t' ++ char '\n'
+  let whitespace = char ' ' ++ char '\t' ++ char '\n' ++ char '\r'
   let ignore = consume (many whitespace)
   let pre p = ignore >> p
   let token p = p << ignore
+  let eof = function
+  | _ :: _ -> None
+  | [] -> Some((), [])
 end
 

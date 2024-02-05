@@ -52,4 +52,5 @@ module ParserMonad : sig include Monad
   val ignore: unit t
   val pre: 'a t -> 'a t
   val token: 'a t -> 'a t
+  val eof: unit t
 end 
