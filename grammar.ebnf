@@ -10,25 +10,21 @@
 #            | <const>
 #            | [ <list-elems> ]
 #            | ( <expr> )
-#            | <expr> <expr>
 #            | if <expr> then <expr> else <expr>
 #            | <id>
 
-<expr> ::= let <id> = <op-expr> in <op-expr> <expr'>
-           | fun <arg-list> -> <op-expr> <expr'>
-           | <const> <expr'>
-           | [ <list-elems> ] <expr'>
-           | ( <expr> ) <expr'>
-           | if <op-expr> then <op-expr> else <op-expr> <expr'>
-           | <id> <expr'>
-
-<expr'> ::= <op-expr>
-            | eps
+<expr> ::= let <id> = <op-expr> in <op-expr>
+           | fun <arg-list> -> <op-expr>
+           | <const>
+           | [ <list-elems> ]
+           | ( <expr> )
+           | if <op-expr> then <op-expr> else <op-expr>
+           | <id>
 
 <op-expr> ::= <expr> <binop> <expr>
               | <unop> <expr>
 
-<binop>   ::= + | - | * | / | +. | -. | *. | /. | < | <= | > | >= | == | ~= | & | '|' | ^ | && | '||' | :: | .. | ,
+<binop>   ::= + | - | * | / | . | +. | -. | *. | /. | < | <= | > | >= | == | ~= | & | '|' | ^ | && | '||' | :: | .. | ,
 <unop>    ::= - | ! | hd | tl | fst | snd
 <arg-list> ::= <identifier> , <arg-list>
                | <identifier>

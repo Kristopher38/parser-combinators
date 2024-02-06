@@ -102,7 +102,7 @@ module LangParser = struct
   let map p retval = p >>= fun _ -> return retval
   
   let prefix = choice [
-    (map (char '-') ((fun a -> Unop(UMinus, a)), 4));
+    (map (token (char '-')) ((fun a -> Unop(UMinus, a)), 4));
     (map (token (char '!')) ((fun a -> Unop(Neg, a)), 4));
   ]
   let infix = choice [
@@ -110,6 +110,7 @@ module LangParser = struct
     (map (token (char '/')) ((fun a b -> Binop(a, Div, b)), 4, 5));
     (map (token (char '+')) ((fun a b -> Binop(a, Plus, b)), 3, 2));
     (map (token (char '-')) ((fun a b -> Binop(a, Minus, b)), 3, 2));
+    (map (token (char '.')) ((fun a b -> App(a, b)), 6, 7))
   ]
 
   let rec expr () =
@@ -117,35 +118,27 @@ module LangParser = struct
       let* let_id = token (str "let") >> token identifier << token (char '=') in
       let* let_val = !:op_expr << token (str "in") in
       let* let_expr = !:op_expr in
-      let* e' = !:expr' in
-      return (e' (Let(to_string let_id, let_val, let_expr)))
+      return (Let(to_string let_id, let_val, let_expr))
     and fundecl_expr =
       let* fun_args = token (str "fun") >> arg_list << token (str "->") in
       let* fun_body = !:op_expr in
-      let* e' = !:expr' in
-      return (e' (FunDecl(List.map to_string fun_args, fun_body)))
+      return (FunDecl(List.map to_string fun_args, fun_body))
     and const_expr =
       let* value = token const in
-      let* e' = !:expr' in
-      return (e' (Const(value)))
+      return (Const(value))
     and list_expr =
       let* elems = token (char '[') >> (sepby (!:op_expr) (token (char ';'))) << token (char ']') in
-      let* e' = !:expr' in
-      return (e' (ListExpr(elems)))
+      return (ListExpr(elems))
     and paren_expr =
-      let* e = token (char '(') >> !:op_expr << token (char ')') in
-      let* e' = !:expr' in
-      return (e' e)
+      token (char '(') >> !:op_expr << token (char ')')
     and if_expr =
       let* cond = token  (str "if") >> !:op_expr << token (str "then") in
       let* then_expr = !:op_expr << token (str "else") in
       let* else_expr = !:op_expr in
-      let* e' = !:expr' in
-      return (e' (If(cond, then_expr, else_expr)))
+      return (If(cond, then_expr, else_expr))
     and id_expr =
       let* id = token identifier in
-      let* e' = !:expr' in
-      return (e' (Id(to_string id)))
+      return (Id(to_string id))
     in choice [
       id_expr;
       let_expr;
@@ -155,11 +148,6 @@ module LangParser = struct
       paren_expr;
       if_expr;
     ]
-  and expr' () =
-    let app_expr =
-      let* arg = many1 !:op_expr in
-      return (fun f -> List.fold_left (fun acc x -> App(acc, x)) f arg)
-    in app_expr ++ return (fun x -> x)  
   and op_expr () =
     operator_parser !:expr prefix infix
   (* type ('a, 'b) operator =
@@ -208,7 +196,7 @@ let rec ast_to_string e = match e with
 | Ast.Const(CFloat f) -> string_of_float f
 | Ast.Const(CString s) -> "\"" ^ s ^ "\""
 | Ast.ListExpr(xs) -> "[" ^ String.concat "\n" (List.map ast_to_string xs) ^ "]"
-| Ast.App(e1, e2) -> "{(" ^ ast_to_string e1 ^ ") (" ^ ast_to_string e2 ^ ")}"
+| Ast.App(e1, e2) -> "{" ^ ast_to_string e1 ^ " . " ^ ast_to_string e2 ^ "}"
 | Ast.If(cond, _then, _else) -> "if " ^ ast_to_string cond ^ " then " ^ ast_to_string _then ^ " else " ^ ast_to_string _else
 | Ast.Id(id) -> id
 
