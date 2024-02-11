@@ -5,6 +5,14 @@ module type Monad = sig
 end
 
 module ParserMonad : sig include Monad
+  type associativity =
+  | Left
+  | Right
+
+  type ('a, 'b) operator =
+  | Prefix of 'a t * ('b -> 'b)
+  | Infix of 'a t * ('b -> 'b -> 'b) * associativity
+
   val (>>=): 'a t -> ('a -> 'b t) -> 'b t
   val (let*): 'a t -> ('a -> 'b t) -> 'b t
 
@@ -14,6 +22,7 @@ module ParserMonad : sig include Monad
   val (@>): 'a t -> 'a list t -> 'a list t
   val (<@): 'a list t -> 'a t -> 'a list t
   val (@@): 'a list t -> 'a list t -> 'a list t
+  val (!:): (unit -> 'a t) -> 'a t
 
   val run: 'a t -> char list -> 'a option
 
@@ -53,4 +62,6 @@ module ParserMonad : sig include Monad
   val pre: 'a t -> 'a t
   val token: 'a t -> 'a t
   val eof: unit t
-end 
+  val defer: (unit -> 'a t) -> 'a t
+  val operator_parser: 'a t -> ('b, 'a) operator list list -> 'a t
+end

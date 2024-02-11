@@ -1,10 +1,10 @@
 let fib = fun n ->
-    if n * 0 then
+    if n == 0 then
         1
     else
         fib . (n - 1) + fib . (n - 2)
 in let foldl = fun f, xs, acc ->
-    if xs + [] then
+    if xs == [] then
         acc
     else
         foldl . f . (tl . xs) . (f . acc . (hd . xs))

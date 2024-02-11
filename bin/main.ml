@@ -5,11 +5,23 @@ module Ast = struct
   | CString of string
 
   type identifier = string
+
   type binop =
+  | Eq
+  | LEq
+  | GEq
+  | Lt
+  | Gt
+  | NEq
+  | And
+  | Or
+  | Cons
+  | Concat
   | Plus
   | Minus
   | Mul
   | Div
+  | Pow
 
   type unop =
   | UMinus
@@ -50,6 +62,7 @@ module LangParser = struct
       let* _float = (option (str "-")) @@ (many1 digit << char '.' >> many digit) in
       return (CFloat(to_string _float |> float_of_string))
     and string_parser =
+      (* Note: missing special chars escaping *)
       let printable_char = sat (in_range '\x23' '\x7f') ++ sat (in_range '\x20' '\x21') in
       let* _string = delim (char '"') (many printable_char) (char '"') in
       return (CString(to_string _string))
@@ -59,58 +72,36 @@ module LangParser = struct
       string_parser;
     ]
 
-  let binop = str_set ["+"; "-"; "*"; "/"](* ; "+."; "-."; "*."; "/."; "<"; "<="; ">"; ">="; "=="; "~="; "&"; "|"; "^"; "&&"; "||"; "::"; ".."; ","] *)
-  let unop = str_set ["-"; "!"](*; "hd"; "tl"; "fst"; "snd"]*)
-
-  let binop_m = [
-    ("+", Plus);
-    ("-", Minus);
-    ("*", Mul);
-    ("/", Div);
-  ]
-  let unop_m = [
-    ("-", UMinus);
-    ("!", Neg);
-  ]
   let arg_list = sepby1 (token identifier) (token (char ','))
 
-  let defer p = 
-    (return ()) >>= (fun _ -> p ())
-  let (!:) = defer
+  let unop x = fun a -> Unop(x, a)
+  let binop x = fun a b -> Binop(a, x, b)
 
-  let operator_parser term prefix infix =
-    let rec parse_prefix () =
-      let* op, rbp = prefix in
-      let* rhs = parse rbp in
-      return (op rhs)
-    and parse bp =
-      let* lhs = !:parse_prefix ++ term in
-      parse_infix_loop lhs bp ++ return lhs
-    and parse_infix_loop lhs bp =
-      let* new_lhs = parse_infix lhs bp in
-      parse_infix_loop new_lhs bp ++ return new_lhs
-    and parse_infix lhs bp =
-      let* op, lbp, rbp = infix in
-      if lbp >= bp then
-        let* rhs = parse rbp in
-        return (op lhs rhs)
-      else
-        zero
-    in parse 0
-
-
-  let map p retval = p >>= fun _ -> return retval
-  
-  let prefix = choice [
-    (map (token (char '-')) ((fun a -> Unop(UMinus, a)), 4));
-    (map (token (char '!')) ((fun a -> Unop(Neg, a)), 4));
-  ]
-  let infix = choice [
-    (map (token (char '*')) ((fun a b -> Binop(a, Mul, b)), 4, 5));
-    (map (token (char '/')) ((fun a b -> Binop(a, Div, b)), 4, 5));
-    (map (token (char '+')) ((fun a b -> Binop(a, Plus, b)), 3, 2));
-    (map (token (char '-')) ((fun a b -> Binop(a, Minus, b)), 3, 2));
-    (map (token (char '.')) ((fun a b -> App(a, b)), 6, 7))
+  let ops = [
+    [Infix(token (str "||"), binop Or, Right)];
+    [Infix(token (str "&&"), binop And, Right)];
+    [
+      Infix(token (str "=="), binop Eq, Left);
+      Infix(token (str "<"), binop Lt, Left);
+      Infix(token (str ">"), binop Gt, Left);
+      Infix(token (str "<="), binop LEq, Left);
+      Infix(token (str ">="), binop GEq, Left);
+      Infix(token (str "~="), binop NEq, Left)
+    ];
+    [Infix(token (str ".."), binop Concat, Right)];
+    [Infix(token (str "::"), binop Cons, Right)];
+    [
+      Infix(token (str "+"), binop Plus, Left);
+      Infix(token (str "-"), binop Minus, Left);
+    ];
+    [
+      Infix(token (str "*"), binop Mul, Left);
+      Infix(token (str "/"), binop Div, Left);
+    ];
+    [Infix(token (str "^"), binop Pow, Right)];
+    [Infix(token (str "."), (fun a b -> App(a, b)), Left)];
+    [Prefix(token (str "-"), unop UMinus)];
+    [Prefix(token (str "!"), unop Neg)];
   ]
 
   let rec expr () =
@@ -149,34 +140,7 @@ module LangParser = struct
       if_expr;
     ]
   and op_expr () =
-    operator_parser !:expr prefix infix
-  (* type ('a, 'b) operator =
-  | InfixL of (('a -> 'b -> 'b) * int * int) Parser_combinators.Combinators.ParserMonad.t
-  | InfixR of (('a -> 'b -> 'b) * int * int) Parser_combinators.Combinators.ParserMonad.t
-  | Prefix of (('a -> 'a) * int) Parser_combinators.Combinators.ParserMonad.t *)
-
-  (* let make_table ops =
-    List.mapi (fun i xs -> (List.map (fun x -> 
-      (match x with
-      | InfixL t -> t
-      | InfixR t -> t
-      | Prefix t -> t), i * 2) xs)) ops *)
-
-  (* let tbl = [
-    [
-      Prefix(map (char '-') UMinus);
-      Prefix(map (char '!') Neg);
-    ];
-    [
-      InfixL(map (char '*') Mul);
-      InfixL(map (char '/') Div);
-    ];
-    [
-      InfixL(map (char '+') Plus);
-      InfixL(map (char '-') Minus);
-    ]
-  ] *)
-
+    operator_parser !:expr ops
 
   let prog = many (op_expr ()) << eof
   let parse str = run prog (of_string str)
@@ -185,23 +149,47 @@ end
 
 let read_file file = In_channel.with_open_bin file In_channel.input_all
 
-let rev_assoc xs =
-  let ys, zs = List.split xs in List.combine zs ys
-let rec ast_to_string e = match e with
+let binop_m = [
+  (Ast.Plus, "+");
+  (Ast.Minus, "-");
+  (Ast.Mul, "*");
+  (Ast.Div, "/");
+  (Ast.Pow, "^");
+  (Ast.Eq, "==");
+  (Ast.LEq, "<=");
+  (Ast.GEq, ">=");
+  (Ast.Lt, "<");
+  (Ast.Gt, ">");
+  (Ast.NEq, "~=");
+  (Ast.And, "&&");
+  (Ast.Or, "||");
+  (Ast.Cons, "::");
+  (Ast.Concat, "..");
+]
+
+let unop_m = [
+  (Ast.UMinus, "-");
+  (Ast.Neg, "!");
+]
+
+let rec ast_to_string = function
 | Ast.Let(id, e1, e2) -> "let " ^ id ^ " = " ^ ast_to_string  e1 ^ " in " ^ ast_to_string  e2
-| Ast.Binop(e1, op, e2) -> "(" ^ ast_to_string e1 ^ " " ^ List.assoc op (rev_assoc LangParser.binop_m) ^ " " ^ ast_to_string e2 ^ ")"
-| Ast.Unop(op, e) -> "(" ^ List.assoc op (rev_assoc LangParser.unop_m) ^ ast_to_string e ^ ")"
-| Ast.FunDecl(xs, e) -> "fun " ^ String.concat "," xs ^ " -> " ^ ast_to_string e
+| Ast.Binop(e1, op, e2) -> "(" ^ ast_to_string e1 ^ " " ^ List.assoc op binop_m ^ " " ^ ast_to_string e2 ^ ")"
+| Ast.Unop(op, e) -> "(" ^ List.assoc op unop_m ^ ast_to_string e ^ ")"
+| Ast.FunDecl(xs, e) -> "fun " ^ String.concat ", " xs ^ " -> " ^ ast_to_string e
 | Ast.Const(CInt n) -> string_of_int n
 | Ast.Const(CFloat f) -> string_of_float f
 | Ast.Const(CString s) -> "\"" ^ s ^ "\""
 | Ast.ListExpr(xs) -> "[" ^ String.concat "\n" (List.map ast_to_string xs) ^ "]"
-| Ast.App(e1, e2) -> "{" ^ ast_to_string e1 ^ " . " ^ ast_to_string e2 ^ "}"
+| Ast.App(e1, e2) -> "(" ^ ast_to_string e1 ^ " . " ^ ast_to_string e2 ^ ")"
 | Ast.If(cond, _then, _else) -> "if " ^ ast_to_string cond ^ " then " ^ ast_to_string _then ^ " else " ^ ast_to_string _else
 | Ast.Id(id) -> id
 
-let program = match LangParser.parse (read_file Sys.argv.(1)) with
+let prog_to_str prog = match LangParser.parse prog with
 | Some xs -> String.concat "\n" (List.map ast_to_string xs)
 | None -> "fail"
 
-let _ = print_endline program
+let _ = if Array.length Sys.argv = 2 then
+  print_endline (prog_to_str (read_file Sys.argv.(1)))
+else
+  print_endline "Usage: parser_combinators FILE"

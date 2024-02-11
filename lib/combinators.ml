@@ -5,6 +5,14 @@ module type Monad = sig
 end
 
 module ParserMonad : sig include Monad
+  type associativity =
+  | Left
+  | Right
+
+  type ('a, 'b) operator =
+  | Prefix of 'a t * ('b -> 'b)
+  | Infix of 'a t * ('b -> 'b -> 'b) * associativity
+
   val (>>=): 'a t -> ('a -> 'b t) -> 'b t
   val (let*): 'a t -> ('a -> 'b t) -> 'b t
 
@@ -14,6 +22,7 @@ module ParserMonad : sig include Monad
   val (@>): 'a t -> 'a list t -> 'a list t
   val (<@): 'a list t -> 'a t -> 'a list t
   val (@@): 'a list t -> 'a list t -> 'a list t
+  val (!:): (unit -> 'a t) -> 'a t
 
   val run: 'a t -> char list -> 'a option
 
@@ -53,6 +62,8 @@ module ParserMonad : sig include Monad
   val pre: 'a t -> 'a t
   val token: 'a t -> 'a t
   val eof: unit t
+  val defer: (unit -> 'a t) -> 'a t
+  val operator_parser: 'a t -> ('b, 'a) operator list list -> 'a t
 end = struct
   type 'a t = char list -> ('a * char list) option
   
@@ -177,5 +188,58 @@ end = struct
   let eof = function
   | _ :: _ -> None
   | [] -> Some((), [])
+
+  let defer p = 
+    (return ()) >>= (fun _ -> p ())
+  let (!:) = defer
+
+  type associativity =
+  | Left
+  | Right
+  
+  type ('a, 'b) operator =
+  | Prefix of 'a t * ('b -> 'b)
+  | Infix of 'a t * ('b -> 'b -> 'b) * associativity
+
+  (* Heavily inspired by https://github.com/adampsz/paml/blob/main/src/extra/make.ml#L135 *)
+  let make_op_parser term prefix infix =
+    let rec parse_prefix () =
+      let* op, prio = prefix in
+      let* rhs = parse prio in
+      return (op rhs)
+    and parse prio =
+      let* lhs = !:parse_prefix ++ term in
+      parse_infix_loop lhs prio ++ return lhs
+    and parse_infix_loop lhs prio =
+      let* new_lhs = parse_infix lhs prio in
+      parse_infix_loop new_lhs prio ++ return new_lhs
+    and parse_infix lhs prio =
+      let* op, opprio, assoc = infix in
+      if opprio >= prio then
+        let* rhs = match assoc with
+        | Left -> parse (opprio + 1)
+        | Right -> parse (opprio - 1)
+        in return (op lhs rhs)
+      else
+        zero
+    in parse 0
+
+  let operator_parser term ops =
+    let with_prios = List.mapi (fun i xs -> (xs, (i * 2) + 2)) ops in
+    let filter_prefix i = function
+    | Prefix(p, op) -> Some(p >>= fun _ -> return (op, i))
+    | _ -> None in
+    let filter_infix i = function
+    | Infix(p, op, assoc) -> Some(p >>= fun _ -> return (op, 
+      (match assoc with
+      | Left -> i - 1
+      | Right -> i), assoc))
+    | _ -> None in
+    let filter_ops f = 
+      with_prios |> List.concat_map (fun (xs, i) ->
+        xs |> List.filter_map (f i)) in
+    let prefix = filter_ops filter_prefix in
+    let infix = filter_ops filter_infix in
+    make_op_parser term (choice prefix) (choice infix)
 end
 
